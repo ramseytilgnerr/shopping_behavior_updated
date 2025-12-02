@@ -16,7 +16,7 @@ st.title("🛒 Shopping Behavior Dashboard")
 st.caption("""MGMT 504 — Programming for Business Analytics
 Fall 2025
 Interactive Dashboard — Shopping Behavior Dataset
-Contributors: Allison Gelman, Samantha Barron, Emily Kilman, Haley Caricati, & Jordan Fishler""")
+Contributors: Ramsey Tilgner, Tom Cohen, Simon Knuewe """)
 
 with st.expander("ℹ️ About This Dashboard", expanded=True):
     st.markdown("""
