@@ -1,0 +1,378 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from pathlib import Path
+
+# =====================
+# PAGE CONFIG
+# =====================
+st.set_page_config(
+    page_title="Shopping Behavior Dashboard",
+    page_icon="🛒",
+    layout="wide"
+)
+
+st.title("🛒 Shopping Behavior Dashboard")
+st.caption("""MGMT 504 — Programming for Business Analytics
+Fall 2025
+Interactive Dashboard — Shopping Behavior Dataset
+Contributors: Allison Gelman, Samantha Barron, Emily Kilman, Haley Caricati, & Jordan Fishler""")
+
+with st.expander("ℹ️ About This Dashboard", expanded=True):
+    st.markdown("""
+    ### 📊 Shopping Behavior Dashboard
+
+    This interactive dashboard analyzes a Kaggle shopping behavior dataset to uncover patterns 
+    in customer demographics, purchasing behavior, and shopping preferences.
+
+    #### 💡 Features
+    - Filter by **product category**, **payment method**, **gender**, and **location**
+    - View **key performance metrics** (revenue, avg. purchase, customer count)
+    - Analyze **revenue by category**, **purchase channel preferences**, and **demographic trends**
+    - Explore **behavioral relationships** like estimated purchase frequency vs. spending
+
+    #### 🎯 Goal
+    Provide business insights that can support better marketing strategies, product targeting, 
+    and customer retention.
+
+    Use the sidebar filters to interact with the data!
+    """)
+
+
+# =====================
+# LOAD DATA
+# =====================
+@st.cache_data
+def load_data(csv_path: str):
+    path = Path(csv_path)
+    if not path.exists():
+        st.error(f"CSV file not found: {csv_path}. "
+                 f"Make sure it is in the same folder as app.py.")
+        return None
+    df = pd.read_csv(path)
+    return df
+
+
+df = load_data("shopping_behavior_updated.csv")  # <-- using your attached dataset
+
+if df is None:
+    st.stop()
+
+# Ensure numeric purchase amount
+if "Purchase Amount (USD)" in df.columns:
+    df["Purchase Amount (USD)"] = pd.to_numeric(df["Purchase Amount (USD)"], errors="coerce")
+
+# Map frequency labels to an approximate "purchases per month"
+if "Frequency of Purchases" in df.columns:
+    freq_map = {
+        "Weekly": 4.0,
+        "Bi-Weekly": 2.0,
+        "Fortnightly": 2.0,
+        "Monthly": 1.0,
+        "Quarterly": 1.0 / 3.0,
+        "Every 3 Months": 1.0 / 3.0,
+        "Annually": 1.0 / 12.0,
+    }
+    df["Purchases_per_month"] = df["Frequency of Purchases"].map(freq_map).fillna(0.0)
+
+st.subheader("Dataset Preview")
+st.dataframe(df.head())
+st.write(f"Rows: **{df.shape[0]}**, Columns: **{df.shape[1]}**")
+
+
+# =====================
+# SIDEBAR FILTERS
+# =====================
+st.sidebar.header("Filter Data")
+
+
+def get_options(col_name):
+    if col_name in df.columns:
+        return sorted(df[col_name].dropna().unique())
+    return []
+
+
+payment_methods = get_options("Payment Method")
+categories = get_options("Category")
+genders = get_options("Gender")
+locations = get_options("Location")
+
+selected_payment = st.sidebar.multiselect(
+    "Payment Method",
+    options=payment_methods,
+    default=payment_methods if payment_methods else []
+)
+
+selected_category = st.sidebar.multiselect(
+    "Product Category",
+    options=categories,
+    default=categories if categories else []
+)
+
+selected_gender = st.sidebar.multiselect(
+    "Gender",
+    options=genders,
+    default=genders if genders else []
+)
+
+selected_location = st.sidebar.multiselect(
+    "Location",
+    options=locations,
+    default=locations if locations else []
+)
+
+filtered_df = df.copy()
+
+if selected_payment:
+    filtered_df = filtered_df[filtered_df["Payment Method"].isin(selected_payment)]
+if selected_category:
+    filtered_df = filtered_df[filtered_df["Category"].isin(selected_category)]
+if selected_gender:
+    filtered_df = filtered_df[filtered_df["Gender"].isin(selected_gender)]
+if selected_location:
+    filtered_df = filtered_df[filtered_df["Location"].isin(selected_location)]
+
+st.sidebar.markdown("---")
+st.sidebar.write(f"Filtered rows: **{filtered_df.shape[0]}**")
+
+
+# =====================
+# KPI CARDS
+# =====================
+st.markdown("### Key Metrics")
+
+col1, col2, col3, col4 = st.columns(4)
+
+total_revenue = filtered_df["Purchase Amount (USD)"].sum() if "Purchase Amount (USD)" in filtered_df.columns else 0
+avg_purchase = filtered_df["Purchase Amount (USD)"].mean() if "Purchase Amount (USD)" in filtered_df.columns else 0
+num_customers = filtered_df["Customer ID"].nunique() if "Customer ID" in filtered_df.columns else filtered_df.shape[0]
+avg_frequency = filtered_df["Purchases_per_month"].mean() if "Purchases_per_month" in filtered_df.columns else 0
+
+col1.metric("Total Revenue", f"${total_revenue:,.2f}")
+col2.metric("Unique Customers", f"{num_customers:,}")
+col3.metric("Avg Purchase Amount", f"${avg_purchase:,.2f}")
+col4.metric("Avg Purchase Frequency", f"{avg_frequency:.2f} / month")
+
+
+# =====================
+# TABS
+# =====================
+tab_overview, tab_demo, tab_behavior = st.tabs(
+    ["📌 Overview", "👥 Demographics", "📈 Behavior"]
+)
+
+# ----- TAB 1: OVERVIEW -----
+with tab_overview:
+    st.subheader("Revenue by Product Category")
+    if "Category" in filtered_df.columns and "Purchase Amount (USD)" in filtered_df.columns:
+        category_rev = (
+            filtered_df.groupby("Category")["Purchase Amount (USD)"]
+            .sum()
+            .reset_index()
+            .sort_values("Purchase Amount (USD)", ascending=False)
+        )
+        fig_cat = px.bar(
+            category_rev,
+            x="Category",
+            y="Purchase Amount (USD)",
+            title="Total Revenue by Category"
+        )
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+    st.subheader("Purchases by Payment Method")
+    if "Payment Method" in filtered_df.columns:
+        payment_counts = filtered_df["Payment Method"].value_counts().reset_index()
+        payment_counts.columns = ["Payment Method", "Count"]
+        fig_payment = px.pie(
+            payment_counts,
+            names="Payment Method",
+            values="Count",
+            title="Share of Purchases by Payment Method"
+        )
+        st.plotly_chart(fig_payment, use_container_width=True)
+
+
+# ----- TAB 2: DEMOGRAPHICS -----
+with tab_demo:
+    st.subheader("Customer Demographics")
+
+    colA, colB = st.columns(2)
+
+    with colA:
+        if "Age" in filtered_df.columns:
+            fig_age = px.histogram(
+                filtered_df,
+                x="Age",
+                nbins=10,
+                title="Age Distribution"
+            )
+            st.plotly_chart(fig_age, use_container_width=True)
+
+    with colB:
+        if "Gender" in filtered_df.columns:
+            gender_counts = filtered_df["Gender"].value_counts().reset_index()
+            gender_counts.columns = ["Gender", "Count"]
+            fig_gender = px.bar(
+                gender_counts,
+                x="Gender",
+                y="Count",
+                title="Customers by Gender"
+            )
+            st.plotly_chart(fig_gender, use_container_width=True)
+
+    st.markdown("---")
+
+    if "Location" in filtered_df.columns and "Purchase Amount (USD)" in filtered_df.columns:
+        loc_rev = (
+            filtered_df.groupby("Location")["Purchase Amount (USD)"]
+            .mean()
+            .reset_index()
+            .sort_values("Purchase Amount (USD)", ascending=False)
+        )
+        fig_loc = px.bar(
+            loc_rev,
+            x="Location",
+            y="Purchase Amount (USD)",
+            title="Avg Purchase Amount by Location"
+        )
+        st.plotly_chart(fig_loc, use_container_width=True)
+
+
+# ----- TAB 3: BEHAVIOR -----
+with tab_behavior:
+    st.subheader("Estimated Purchase Frequency vs Amount")
+    if "Purchases_per_month" in filtered_df.columns and "Purchase Amount (USD)" in filtered_df.columns:
+        fig_scatter = px.scatter(
+            filtered_df,
+            x="Purchases_per_month",
+            y="Purchase Amount (USD)",
+            color="Category" if "Category" in filtered_df.columns else None,
+            title="Estimated Purchases per Month vs Purchase Amount",
+            labels={"Purchases_per_month": "Purchases per Month"}
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+    st.subheader("Average Review Rating by Category")
+    if "Review Rating" in filtered_df.columns and "Category" in filtered_df.columns:
+        rating = (
+            filtered_df.groupby("Category")["Review Rating"]
+            .mean()
+            .reset_index()
+            .sort_values("Review Rating", ascending=False)
+        )
+        fig_rating = px.bar(
+            rating,
+            x="Category",
+            y="Review Rating",
+            title="Avg Review Rating by Category"
+        )
+        st.plotly_chart(fig_rating, use_container_width=True)
+
+
+# ======================
+# PERSONAL SHOPPING INSIGHTS
+# ======================
+st.subheader("🛒 Personalized Shopping Insights")
+
+age_input = st.selectbox("Select Your Age:", sorted(df["Age"].unique()))
+location_input = st.selectbox("Select Your Location:", sorted(df["Location"].unique()))
+payment_input = st.selectbox("Preferred Payment Method:", sorted(df["Payment Method"].unique()))
+category_input = st.selectbox("Preferred Product Category:", sorted(df["Category"].unique()))
+
+if st.button("Get My Insights"):
+    user_segment = df[
+        (df["Age"] == age_input) &
+        (df["Location"] == location_input) &
+        (df["Payment Method"] == payment_input)
+    ]
+
+    if user_segment.empty:
+        st.warning("No exact match — showing closest matches by location instead.")
+        user_segment = df[df["Location"] == location_input]
+
+    avg_spending = user_segment["Purchase Amount (USD)"].mean()
+    top_category = user_segment["Category"].mode()[0]
+    avg_frequency_seg = user_segment["Purchases_per_month"].mean() if "Purchases_per_month" in user_segment.columns else 0
+
+    overall_avg_spending = df["Purchase Amount (USD)"].mean()
+    overall_avg_frequency = df["Purchases_per_month"].mean() if "Purchases_per_month" in df.columns else 0
+
+    st.success("### 🎯 Personalized Insights Just for You")
+    st.markdown(f"""
+    **Shoppers like you typically…**
+    - 💵 Spend **${avg_spending:.2f}** per purchase
+    - ⭐ Most often buy **{top_category}**
+    - 🔁 Make **{avg_frequency_seg:.2f}** purchases per month (estimated)
+    """)
+
+    # Comparison Chart
+    compare_df = pd.DataFrame({
+        "Metric": ["Avg Spending", "Estimated Purchase Frequency (per month)"],
+        "You": [avg_spending, avg_frequency_seg],
+        "All Shoppers": [overall_avg_spending, overall_avg_frequency]
+    })
+
+    fig_compare = px.bar(
+        compare_df,
+        x="Metric",
+        y=["You", "All Shoppers"],
+        barmode="group",
+        title="📊 You vs. Other Shoppers"
+    )
+    st.plotly_chart(fig_compare, use_container_width=True)
+
+    # Recommendation logic
+    st.subheader("💡 Recommendation")
+    if avg_spending > overall_avg_spending and avg_frequency_seg > overall_avg_frequency:
+        rec = "🔥 You're a high-value frequent shopper — personalized loyalty rewards recommended!"
+    elif avg_spending > overall_avg_spending:
+        rec = "💰 You lean toward higher-value purchases — exclusive membership perks could be appealing."
+    elif avg_frequency_seg > overall_avg_frequency:
+        rec = "🌟 You're a frequent shopper — subscription bundles or auto-replenish offers could add value."
+    else:
+        rec = "💡 You might benefit most from targeted promotions, seasonal discounts, and personalized offers."
+
+    st.info(rec)
+
+    # Downloadable text report
+    report_text = f"""
+    Personalized Shopper Report
+    ---------------------------
+    Age: {age_input}
+    Location: {location_input}
+    Preferred Payment Method: {payment_input}
+    Preferred Category: {category_input}
+
+    Avg Purchase Amount: ${avg_spending:.2f}
+    Most Purchased Category (segment): {top_category}
+    Estimated Monthly Purchase Frequency (segment): {avg_frequency_seg:.2f}
+
+    Recommendation: {rec}
+    """
+
+    st.download_button("📥 Download My Report", report_text, file_name="shopping_insights.txt")
+
+
+# =====================
+# CUSTOM STYLING
+# =====================
+st.markdown("""
+<style>
+/* Clean card look for key metrics */
+[data-testid="metric-container"] {
+    background: rgba(28, 131, 225, 0.1);
+    border-radius: 12px;
+    padding: 10px;
+    margin: 6px;
+}
+
+/* Title styling */
+h1 {
+    font-weight: 700;
+}
+
+/* Hide Streamlit branding footer */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
